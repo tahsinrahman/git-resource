@@ -39,6 +39,11 @@ force=$(jq -r '.params.force // false' < $payload)
 only_tag=$(jq -r '.params.only_tag // false' < $payload)
 annotation_file=$(jq -r '.params.annotate // ""' < $payload)
 notes_file=$(jq -r '.params.notes // ""' < $payload)
+commit_status=$(jq -r '.params.status //""' < $payload)
+token=$(jq -r '.params.token //""' < $payload)
+description=$(jq -r '.params.description //""' < $payload)
+context=$(jq -r '.params.context //"default"' < $payload)
+nopush=$(jq -r '.params.nopush //"false"' < $payload)
 
 configure_git_global "${git_config_payload}"
 
@@ -90,6 +95,40 @@ if [ -n "$annotation_file" ]; then
 fi
 
 cd $repository
+
+
+if [ "$nopush" == "true" ]; then
+    if [ "$commit_status" ]; then
+        echo "missing status"
+        exit 1
+    fi
+
+    if [ -z "token" ]; then
+        echo "missing access token"
+        exit 1
+    fi
+
+    tmp=$uri
+    tmp=$(sed "s/https:\/\/github.com\///" <<< $tmp)
+    tmp=$(sed "s/git@github.com://" <<< $tmp)
+    tmp=$(sed "s/\.git//" <<< $tmp)
+    tmp=$(sed "s/\// /" <<< $tmp)
+    #https://stackoverflow.com/a/1478245/3858925
+    set -- junk $tmp
+    shift
+    #https://developer.github.com/v3/repos/statuses/#create-a-status
+    url="https://api.github.com/repos/$1/$2/statuses/$(git rev-parse HEAD)"
+
+    data="{
+        \"state\" : \"$commit_status\",
+        \"description\" : \"$description: $commit_status\",
+        \"target_url\" : \"$ATC_EXTERNAL_URL/teams/$BUILD_TEAM_NAME/pipelines/$BUILD_PIPELINE_NAME/jobs/$BUILD_JOB_NAME/builds/$BUILD_NAME\",
+        \"context\" : \"$context\"
+    }"
+
+    curl -H "Authorization: token $token" --fail -XPOST ${url} -d "${data}"
+    exit 0
+fi
 
 tag() {
   if [ -n "$tag_name" ]; then
